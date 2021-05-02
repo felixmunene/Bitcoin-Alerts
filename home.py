@@ -1,29 +1,87 @@
-from flask import Flask
+from flask import Flask, request, render_template
 import requests as req
 import dateparser
 import pytz
 import json
 import time
+import pandas as pd
 from datetime import datetime
 app = Flask(__name__)
 transactionsurl = "https://api.whale-alert.io/v1/transactions/"
 transactionurl = "https://api.whale-alert.io/v1/transaction/"
 statusurl = "https://api.whale-alert.io/v1/status"
 api_key = "Dt2SXrzJA5VJ780xJtFMFdcW8JVkTS32"
+response_dict={}
 @app.route('/')
-def hello_world():
-    response_content =''
-    r = transactionsquery(api_key,500000,'15 Minutes ago UTC')
-    data = r.json()
-    result_str=json.dumps(data)
-    result_tuple = json.loads(result_str)
-    if result_tuple.get('result') == 'success':
-        transaction_list=result_tuple['transactions']
-        for i in transaction_list:
-           response = transactionquery(i['blockchain'],i['hash'],api_key)
-           print(response.content)
-    return result_str
+def hello_world():    
+    df = pd.DataFrame()
+    # r = transactionsquery(api_key,500000,'15 Minutes ago UTC')
+    # data = r.json()
+    # result_str=json.dumps(data)
+    # result_tuple = json.loads(result_str)
+    # if result_tuple.get('result') == 'success':
+    #     transaction_list=result_tuple['transactions']
+    #     for i in transaction_list:
+    #        response = transactionquery(i['blockchain'],i['hash'],api_key)
+    #        print(respponse.content)
     
+    try:
+        r = transactionsquery(api_key,500000,'10 Minutes ago UTC')
+    except:
+        print('transactions query failed')
+    try:
+       result =  parseresponse(r)
+    except:
+        print('parse response failed')
+    try:
+        if result.get('result')=='success':
+            transaction_list=result['transactions']
+            for i in transaction_list:
+                try:
+                    response = transactionquery(i['blockchain'],i['hash'],api_key)
+                except:
+                    print('transactionquery execution failure')
+                try:
+                    transactionresults = parseresponse(response)                    
+                except:
+                    print('Error parsing the transaction query result')
+                if transactionresults.get('result')=='success':
+                    transaction_data = transactionresults['transactions']
+                    for i in transaction_data:
+                        i.pop('from')
+                        i.pop('to')
+                        for key in i:
+                            set_key(response_dict,key,i[key])
+                        #print(type(i))
+                        
+    except:
+        print(result)
+    df = pd.DataFrame.from_dict(response_dict)
+    return render_template('simple.html',  tables=[df.to_html(classes='data')], titles=df.columns.values)
+def set_key(dictionary,key,value):
+    if key not in dictionary:
+        dictionary[key]= value
+    elif type(dictionary[key]) == list:
+        dictionary[key].append(value)
+    else:
+        dictionary[key] = [dictionary[key],value]
+def statuscheck(api_key):
+    #takes a parameter of api key 
+    PARAMS = {'api_key:api_key'}
+    r = req.get(url=statusurl,params=PARAMS)
+    return r
+def parseresponse(r):
+    try:
+        data = r.json()
+    except ValueError as e:
+        print(e)
+    try:
+        result_str= json.dumps(data)
+        result_tuple = json.loads(result_str)
+    except ValueError as e:
+        print(e)
+    return result_tuple
+
 def transactionquery(blockchain,hash,api_key):
     #takes parameters as follows
     #blockchain --string --The blockchain to search for the specific hash (lowercase)
